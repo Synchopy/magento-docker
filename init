@@ -1,0 +1,100 @@
+#!/bin/bash
+
+DEFAULT_VERSION="2.4.2";
+
+function usage() {
+  if [ -n "$1" ]; then
+    echo -e "${RED}👉 $1${CLEAR}\n";
+  fi
+  echo "Usage: $0 [-n name] [-r repository-url]"
+  echo "  -n, --name              The project name"
+  echo "  -r, --repository-url    The .git repository url"
+  echo "  -v, --version           The Magento version to clone if using repository-url as \"new\", not used otherwise"
+  echo "Example 1: $0 --name project-name --repository-url https://github.com/clean-docker/Magento2.git"
+  echo "Example 2: $0 --name project-name --repository-url new --version 2.3.7"
+  exit 1
+}
+
+VERSION=$DEFAULT_VERSION
+
+# parse params
+while [[ "$#" > 0 ]]; do case $1 in
+  -n|--name) NAME="$2"; shift;shift;;
+  -r|--repository-url) REPO="$2";shift;shift;;
+  -v|--version) VERSION="$2";shift;shift;;
+  *) usage "Unknown parameter passed: $1"; shift; shift;;
+esac; done
+
+
+# verify params
+if [ -z "$NAME" ]; then usage "The name of the project is not set\n\nSet it using --name project-name"; fi;
+if [ -z "$REPO" ]; then usage "Repository is not set\n\nSet it using --repo repository-url"; fi;
+
+# copy example override file, with mailhog+phpmyadmin
+cp docker-compose.override.yml.example docker-compose.override.yml
+
+# include the project name onto the docker compose command
+sed -i -e "s/<project-name>/$NAME/g" docker-compose.yml docker-compose.override.yml;
+
+# builds the image
+docker build --tag norte/magento-base .
+
+# bring containers up
+docker-compose up -d
+
+if [ "$REPO" = "empty" ]; then
+  echo "Empty new Project Created, you are ready to go!"
+  exit 1;
+fi
+
+# gets run inside the container
+if [ "$REPO" = "new" ]; then
+    docker-compose exec php composer create-project --repository-url=https://repo.magento.com/ magento/project-community-edition:$VERSION . -vvv;
+    docker-compose exec php bin/magento setup:install \
+    --base-url=http://$NAME.localhost/ \
+    --db-host=db \
+    --db-name=magento \
+    --db-user=root \
+    --db-password=root \
+    --admin-firstname=admin \
+    --admin-lastname=admin \
+    --admin-email=admin@admin.com \
+    --admin-user=admin \
+    --admin-password=admin123 \
+    --search-engine=elasticsearch6 \
+    --elasticsearch-host=elasticsearch \
+    --elasticsearch-port=9200 \
+    --elasticsearch-index-prefix=magento2 \
+    --language=pt_BR \
+    --currency=BRL \
+    --timezone=America/Sao_Paulo \
+    --use-rewrites=1
+    exit 1;
+fi
+
+# checks if the repo is a git repo and either clones it into the src dir
+IS_GET_REPO=".git$"
+
+if [[ "${REPO}" =~ ${IS_GET_REPO} ]]; then
+  git clone $REPO src
+  docker-compose exec php bin/magento setup:install \
+  --base-url=http://$NAME.localhost/ \
+  --db-host=db \
+  --db-name=magento \
+  --db-user=root \
+  --db-password=root \
+  --admin-firstname=admin \
+  --admin-lastname=admin \
+  --admin-email=admin@admin.com \
+  --admin-user=admin \
+  --admin-password=admin123 \
+  --search-engine=elasticsearch6 \
+  --elasticsearch-host=elasticsearch \
+  --elasticsearch-port=9200 \
+  --elasticsearch-index-prefix=magento2 \
+  --language=pt_BR \
+  --currency=BRL \
+  --timezone=America/Sao_Paulo \
+  --use-rewrites=1
+  exit 1;
+fi
